@@ -22,8 +22,8 @@ public class Memory {
      * 实模式：
      * 		无需管理，该情况下不好判断数据是否已经加载到内存(除非给每个字节建立有效位)，干脆每次都重新读Disk(地址空间不会超过1 MB)
      * 分段：
-     * 		最先适应 -> 空间不足则判断总剩余空间是否足够 -> 足够则进行碎片整理，将内存数据压缩
-     * 													 -> 不足则采用最近使用算法LRU直到总剩余空间足够 -> 碎片整理
+     *      最先适应 -> 空间不足则判断总剩余空间是否足够 -> 足够则进行碎片整理，将内存数据压缩
+     * -> 不足则采用最近使用算法LRU直到总剩余空间足够 -> 碎片整理
      * 段页：
      * 		如果数据段已经在内存，使用全关联映射+LRU加载物理页框；如果数据段不在内存，先按照分段模式进行管理，分配的段长度为数据段包含的总物理页框数/2，再将物理页框加载到内存
      */
@@ -32,22 +32,18 @@ public class Memory {
     public static boolean PAGE = false;
 
     public static int MEM_SIZE_B = 32 * 1024 * 1024;      // 主存大小 32 MB
+    // 32*1024*1024算出来是32M，故这32M应该是32M个最小可寻址单元，每个单元存储1B，所以注释说主存在校32MB。32M个最小可寻址单元只要25位就可以了
 
     public static int PAGE_SIZE_B = 1 * 1024;      // 页大小 1 KB
-
+    public static ArrayList<SegDescriptor> segTbl = new ArrayList<>(); // 改private为public
+    public static PageItem[] pageTbl = new PageItem[Disk.DISK_SIZE_B / Memory.PAGE_SIZE_B]; // 页表大小为2^17  128K // 改private为public
+    private static char[] memory = new char[MEM_SIZE_B]; // 一个char占据一个字节的空间，没毛病
+    private static ReversedPageItem[] reversedPageTbl = new ReversedPageItem[Memory.MEM_SIZE_B / Memory.PAGE_SIZE_B]; // 反向页表大小为2^15   32K
+    private static Memory memoryInstance = new Memory();
     Transformer t = new Transformer();
 
-    private static char[] memory = new char[MEM_SIZE_B];
-
-    private static ArrayList<SegDescriptor> segTbl = new ArrayList<>();
-
-    private static PageItem[] pageTbl = new PageItem[Disk.DISK_SIZE_B / Memory.PAGE_SIZE_B]; // 页表大小为2^17  128K
-
-    private static ReversedPageItem[] reversedPageTbl = new ReversedPageItem[Memory.MEM_SIZE_B / Memory.PAGE_SIZE_B]; // 反向页表大小为2^15   32K
-
-    private static Memory memoryInstance = new Memory();
-
-    private Memory() {}
+    private Memory() {
+    }
 
     public static Memory getMemory() {
         return memoryInstance;
@@ -56,23 +52,41 @@ public class Memory {
     /**
      * 分段开启的情况下，read方法不允许一次性读取两个段的内容，但是可以一次性读取单个段内多页的内容
      * 注意， read方法应该在load方法被调用之后调用，即read方法的目标页(如果开启分页)都是合法的
-     * @param eip
-     * @param len
-     * @return
+     *
+     * @param eip 32位物理地址
+     * @param len 读取数据的长度
+     * @return 内存中的数据
      */
-    public char[] read(String eip, int len){
+    public char[] read(String eip, int len) {
         // TODO 读取数据
-        return null;
+        if (this.PAGE == false && this.SEGMENT == false) { // 实模式的情况下，干脆直接去读Disk
+            Disk disk = Disk.getDisk();
+            return disk.read(eip, len);
+        } else if (this.PAGE == false && this.SEGMENT == true) { // 只有分段模式
+            int baseAddr = Integer.parseInt(t.binaryToInt(eip));
+            char[] data = new char[len];
+            for (int i = 0; i < len; i++) {
+                data[i] = memory[i + baseAddr];
+            }
+            return data;
+        } else { // 段页式
+            int baseAddr = Integer.parseInt(t.binaryToInt(eip));
+            char[] data = new char[len];
+            for (int i = 0; i < len; i++) {
+                data[i] = memory[i + baseAddr];
+            }
+            return data;
+        }
     }
 
-    public void write(String eip, int len, char []data){
+    public void write(String eip, int len, char[] data) {
         // 通知Cache缓存失效
         // 本作业只要求读数据，不要求写数据，因此不存在程序修改数据导致Cache修改 -> Mem修改 -> Disk修改等一系列write back/write through操作，
         //     write方法只用于测试用例中的下层存储修改数据导致上层存储数据失效，Disk.write同理
 //        Cache.getCache().invalid(eip, len);
         // 更新数据
         int start = Integer.parseInt(new Transformer().binaryToInt(eip));
-        for (int ptr=0; ptr<len; ptr++) {
+        for (int ptr = 0; ptr < len; ptr++) {
             memory[start + ptr] = data[ptr];
         }
     }
@@ -84,8 +98,9 @@ public class Memory {
      * 强制创建一个段描述符，指向指定的物理地址，以便测试用例可以直接修改Disk，
      * 而不用创建一个模拟进程，自上而下进行修改，也不用实现内存分配策略
      * 此方法仅被测试用例使用，而且使用时需小心，此方法不会判断多个段描述符对应的物理存储区间是否重叠
+     *
      * @param segSelector
-     * @param eip 32-bits
+     * @param eip         32-bits
      * @param len
      */
     public void alloc_seg_force(int segSelector, String eip, int len, boolean isValid, String disk_base) {
@@ -103,7 +118,7 @@ public class Memory {
      */
     public void clear() {
         segTbl = new ArrayList<>();
-        for (PageItem pItem:pageTbl) {
+        for (PageItem pItem : pageTbl) {
             if (pItem != null) {
                 pItem.isInMem = false;
             }
@@ -112,6 +127,7 @@ public class Memory {
 
     /**
      * 强制使段/页失效，仅用于测试用例
+     *
      * @param segNO
      * @param pageNO
      */
@@ -126,7 +142,7 @@ public class Memory {
         }
     }
 
-    PageItem pageTbl(int index) {
+    public PageItem pageTbl(int index) { // private改为public
         if (pageTbl[index] == null) {
             pageTbl[index] = new PageItem();
             return pageTbl[index];
@@ -136,11 +152,11 @@ public class Memory {
     }
 
 
-    ReversedPageItem reversedPageTbl(int index){
-        if(reversedPageTbl[index] == null){
+    ReversedPageItem reversedPageTbl(int index) {
+        if (reversedPageTbl[index] == null) {
             reversedPageTbl[index] = new ReversedPageItem();
-            return reversedPageTbl[index] ;
-        }else{
+            return reversedPageTbl[index];
+        } else {
             return reversedPageTbl[index];
         }
     }
@@ -154,7 +170,7 @@ public class Memory {
     /**
      * 段选择符理论长度为64-bits，包括32-bits基地址和20-bits的限长(1 MB)，为了测试用例填充内存方便，未被使用的11-bits数据被添加到限长，即作业中限长为31-bits
      */
-    private class SegDescriptor {
+    public class SegDescriptor { // 将private改为public
         // 段基址在缺段中断发生时可能会产生变化，内存重新为段分配内存基址
         private char[] base = new char[32];  // 32位基地址
 
@@ -167,7 +183,7 @@ public class Memory {
         // 段在物理磁盘中的存储位置，真实段描述符里不包含此字段，本作业规定，段在磁盘中连续存储，并且磁盘中的存储位置不会发生变化
         private char[] disk_base = new char[32];
 
-        public SegDescriptor () {
+        public SegDescriptor() {
             timeStamp = System.currentTimeMillis();
         }
 
@@ -216,7 +232,7 @@ public class Memory {
     /**
      * 页表项为长度为20-bits的页框号
      */
-    private class PageItem {
+    public class PageItem { // 改private 为public
 
         private char[] frameAddr;
 
@@ -251,11 +267,11 @@ public class Memory {
 
         private long timeStamp = System.currentTimeMillis();
 
-        public long getTimeStamp(){
+        public long getTimeStamp() {
             return this.timeStamp;
         }
 
-        public void updateTimeStamp(){
+        public void updateTimeStamp() {
             this.timeStamp = System.currentTimeMillis();
         }
 
