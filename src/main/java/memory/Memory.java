@@ -34,9 +34,9 @@ public class Memory {
     public static int MEM_SIZE_B = 32 * 1024 * 1024;      // 主存大小 32 MB
     // 32*1024*1024算出来是32M，故这32M应该是32M个最小可寻址单元，每个单元存储1B，所以注释说主存在校32MB。32M个最小可寻址单元只要25位就可以了
 
-    public static int PAGE_SIZE_B = 1 * 1024;      // 页大小 1 KB
+    public static int PAGE_SIZE_B = 1 * 1024;      // 页大小 1 KB，页内偏移10位
     public static ArrayList<SegDescriptor> segTbl = new ArrayList<>(); // 改private为public
-    public static PageItem[] pageTbl = new PageItem[Disk.DISK_SIZE_B / Memory.PAGE_SIZE_B]; // 页表大小为2^17  128K // 改private为public
+    public static PageItem[] pageTbl = new PageItem[Disk.DISK_SIZE_B / Memory.PAGE_SIZE_B]; // 页表大小为2^17  128K // 那么虚页号应该有17位啊 // 改private为public
     private static char[] memory = new char[MEM_SIZE_B]; // 一个char占据一个字节的空间，没毛病
     private static ReversedPageItem[] reversedPageTbl = new ReversedPageItem[Memory.MEM_SIZE_B / Memory.PAGE_SIZE_B]; // 反向页表大小为2^15   32K
     private static Memory memoryInstance = new Memory();
@@ -59,22 +59,25 @@ public class Memory {
      */
     public char[] read(String eip, int len) {
         // TODO 读取数据
-        if (this.PAGE == false && this.SEGMENT == false) { // 实模式的情况下，干脆直接去读Disk
-            Disk disk = Disk.getDisk();
-            return disk.read(eip, len);
-        } else if (this.PAGE == false && this.SEGMENT == true) { // 只有分段模式
+
+        // 实模式下
+        if (!PAGE && !SEGMENT) {
+            return Disk.getDisk().read(eip, len);
+        }
+
+        // 分段模式下
+        else if (!PAGE) {
             int baseAddr = Integer.parseInt(t.binaryToInt(eip));
             char[] data = new char[len];
-            for (int i = 0; i < len; i++) {
-                data[i] = memory[i + baseAddr];
-            }
+            System.arraycopy(memory, baseAddr, data, 0, len);
             return data;
-        } else { // 段页式
+        }
+
+        // 段页式下
+        else {
             int baseAddr = Integer.parseInt(t.binaryToInt(eip));
             char[] data = new char[len];
-            for (int i = 0; i < len; i++) {
-                data[i] = memory[i + baseAddr];
-            }
+            System.arraycopy(memory, baseAddr, data, 0, len);
             return data;
         }
     }
@@ -99,18 +102,21 @@ public class Memory {
      * 而不用创建一个模拟进程，自上而下进行修改，也不用实现内存分配策略
      * 此方法仅被测试用例使用，而且使用时需小心，此方法不会判断多个段描述符对应的物理存储区间是否重叠
      *
-     * @param segSelector
-     * @param eip         32-bits
-     * @param len
+     * @param segSelector 新添加到段表项的索引，int类型
+     * @param eip         32-bits,对应段表项中的base
+     * @param len         32-bits,其后31位对应段的长度（那第一位是用来干嘛的？
+     * @param isValid     标识段是否在内存中
+     * @param disk_base   32-bits，对应段表项中段disk_base,即段在磁盘中存储段物理位置
      */
+    // 这个方法就是向段表项中增加一项
     public void alloc_seg_force(int segSelector, String eip, int len, boolean isValid, String disk_base) {
-        SegDescriptor sd = new SegDescriptor();
+        SegDescriptor sd = new SegDescriptor(); // 新的段表项
         Transformer t = new Transformer();
         sd.setDisk(disk_base.toCharArray());
         sd.setBase(eip.toCharArray());
         sd.setLimit(t.intToBinary(String.valueOf(len)).substring(1, 32).toCharArray());
         sd.setValidBit(isValid);
-        Memory.segTbl.add(segSelector, sd);
+        Memory.segTbl.add(segSelector, sd); // 将新的段表项添加到段表中，segSelector是索引
     }
 
     /**
@@ -170,6 +176,7 @@ public class Memory {
     /**
      * 段选择符理论长度为64-bits，包括32-bits基地址和20-bits的限长(1 MB)，为了测试用例填充内存方便，未被使用的11-bits数据被添加到限长，即作业中限长为31-bits
      */
+    // 段描述符，实际上就是段表项
     public class SegDescriptor { // 将private改为public
         // 段基址在缺段中断发生时可能会产生变化，内存重新为段分配内存基址
         private char[] base = new char[32];  // 32位基地址
@@ -231,10 +238,12 @@ public class Memory {
 
     /**
      * 页表项为长度为20-bits的页框号
+     * 页表项的索引：虚拟页号
+     * CPU通过虚拟页号算出index，寻址到对应的页表项，取出相应的frameNumber
      */
     public class PageItem { // 改private 为public
 
-        private char[] frameAddr;
+        private char[] frameAddr = {'0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0'};
 
         private boolean isInMem = false;
 

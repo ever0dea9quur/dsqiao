@@ -30,9 +30,11 @@ public class PSTest {
 
 	@Test
 	public void test1() {
-		String eip = "00000000000000000000000000000000";
+		String eip = "00000000000000000000000000000000"; // 32个0
 		int len = 2 * 1024;
+		// data长度为2048
 		char[] data = helper.fillData((char)0b00001111, len);
+		// isValid设为true表示段表已经装入内存了，凭什么？内存这时候应该是空的
 		memory.alloc_seg_force(0, eip, len / 2, true, "");
 		assertArrayEquals(data, mmu.read("000000000000000000000000000000000000000000000000", len));
 	}

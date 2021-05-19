@@ -9,8 +9,8 @@ import java.util.Arrays;
  * 磁盘抽象类，磁盘大小为128M
  *
  * 	磁盘数据组成：
- * 	[0M-20M): 0b00001111
- * 	[20M-32M): 0b00000011
+ * 	[0M-20M): 0b00001111 // 空的
+ * 	[20M-32M): 0b00000011 //
  * 	[32M-64M): 0b01010101
  * 	[64M-80M): 0b00110011
  * 	[80M-128M): 0b00000000
@@ -134,4 +134,7 @@ public class Disk {
 		}
 	}
 
+	public static void main(String[] args) {
+		System.out.println((char)0b00000011);
+	}
 }
