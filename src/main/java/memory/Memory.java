@@ -243,9 +243,9 @@ public class Memory {
      */
     public class PageItem { // 改private 为public
 
-        private char[] frameAddr = {'0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0','0'};
+        private char[] frameAddr;
 
-        private boolean isInMem = false;
+        public boolean isInMem = false; // 改private为public
 
         public char[] getFrameAddr() {
             return frameAddr;

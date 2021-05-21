@@ -73,6 +73,22 @@ public class MMU {
 		// 段页式模式下
 		else {
 
+			// 通过段号查询段
+			int descriptorIndex = Integer.parseInt(t.binaryToInt(logicAddr.substring(0, 13)));
+			SegDescriptor descriptor = Memory.segTbl.get(descriptorIndex);
+
+			// 段的基址+段内偏移得到线性地址
+			int base = Integer.parseInt(t.binaryToInt(String.valueOf(descriptor.getBase())));
+			int offset = Integer.parseInt(t.binaryToInt(logicAddr.substring(16)));
+			linearAddr = t.intToBinary(String.valueOf(base+offset));
+
+			// 线性地址前20位为页号，后12位为页内偏移
+			int pageNum = Integer.parseInt(t.binaryToInt(linearAddr.substring(0, 20)));
+			int offset2 = Integer.parseInt(t.binaryToInt(linearAddr.substring(20)));
+
+			char[] data = Disk.getDisk().read(t.intToBinary(String.valueOf(pageNum * 1024 + offset2)), length);
+			memory.write(physicalAddr, length, data);
+
 		}
 		return memory.read(physicalAddr, length);
 	}
